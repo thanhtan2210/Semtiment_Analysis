@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  mlflow:
+    image: python:3.11-slim
+    container_name: sentiment_mlflow
+    working_dir: /app
+    volumes:
+      - ./mlruns:/mlruns
+    command: sh -c "pip install --no-cache-dir mlflow && mlflow server --host 0.0.0.0 --backend-store-uri file:/mlruns --default-artifact-root file:/mlruns --port 5000"
+    ports:
+      - "5000:5000"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sentiment_api
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mlflow
+    volumes:
+      - ./models:/app/models
+      - ./mlruns:/app/mlruns
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    command: uvicorn serve:app --host 0.0.0.0 --port 8000
