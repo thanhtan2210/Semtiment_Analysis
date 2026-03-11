@@ -1,28 +1,85 @@
 version: '3.8'
 
 services:
+  # --- Message Broker (Kafka) ---
+  zookeeper:
+    image: bitnami/zookeeper:latest
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+
+  kafka:
+    image: bitnami/kafka:3.6
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+    depends_on:
+      - zookeeper
+
+  # --- NoSQL Database (MongoDB) ---
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  # --- Stream Processing (Spark) ---
+  spark-master:
+    image: bitnami/spark:3.5
+    container_name: spark-master
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+
+  spark-worker:
+    image: bitnami/spark:3.5
+    container_name: spark-worker
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=1G
+      - SPARK_WORKER_CORES=1
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    depends_on:
+      - spark-master
+
+  # --- Machine Learning Tracking (MLflow) ---
   mlflow:
     image: python:3.11-slim
     container_name: sentiment_mlflow
-    working_dir: /app
     volumes:
       - ./mlruns:/mlruns
-    command: sh -c "pip install --no-cache-dir mlflow && mlflow server --host 0.0.0.0 --backend-store-uri file:/mlruns --default-artifact-root file:/mlruns --port 5000"
+    command: sh -c "pip install mlflow && mlflow server --host 0.0.0.0 --port 5000"
     ports:
       - "5000:5000"
 
+  # --- FastAPI (Sẽ được cập nhật sau để đọc từ MongoDB) ---
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
     container_name: sentiment_api
     ports:
       - "8000:8000"
     depends_on:
-      - mlflow
-    volumes:
-      - ./models:/app/models
-      - ./mlruns:/app/mlruns
+      - mongodb
     environment:
-      - MLFLOW_TRACKING_URI=http://mlflow:5000
-    command: uvicorn serve:app --host 0.0.0.0 --port 8000
+      - MONGODB_URI=mongodb://mongodb:27017
+
+volumes:
+  mongo_data:

@@ -1,46 +1,62 @@
-from pathlib import Path
-from typing import Optional
-
-import joblib
+import os
+from typing import List, Optional
 from fastapi import FastAPI
 from pydantic import BaseModel
+from pymongo import MongoClient
+import joblib
+from pathlib import Path
 
+# Cấu hình
+MONGO_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+DB_NAME = "sentiment_db"
+COLLECTION_NAME = "results"
 MODEL_PATH = Path(__file__).parent / "models" / "sentiment_pipeline.joblib"
 
-app = FastAPI(title="Sentiment Analysis API", version="0.1.0")
+app = FastAPI(title="Real-time Sentiment Analysis API", version="0.2.0")
 
+# Kết nối MongoDB
+client = MongoClient(MONGO_URI)
+db = client[DB_NAME]
+collection = db[COLLECTION_NAME]
 
-class PredictRequest(BaseModel):
+class SentimentRecord(BaseModel):
     text: str
+    user: str
+    platform: str
+    timestamp: str
+    sentiment: str
 
+class Stats(BaseModel):
+    sentiment_counts: dict
 
-class PredictResponse(BaseModel):
-    label: str
-    score: Optional[float] = None
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to Real-time Sentiment Analysis API"}
 
+@app.get("/latest", response_model=List[SentimentRecord])
+def get_latest(limit: int = 10):
+    """Lấy các bản ghi mới nhất từ MongoDB"""
+    records = list(collection.find().sort("_id", -1).limit(limit))
+    for r in records:
+        r["_id"] = str(r["_id"]) # Convert ObjectId to string
+    return records
 
-@app.on_event("startup")
-def load_model():
-    global pipe
+@app.get("/stats", response_model=Stats)
+def get_stats():
+    """Thống kê số lượng cảm xúc"""
+    pipeline = [
+        {"$group": {"_id": "$sentiment", "count": {"$sum": 1}}}
+    ]
+    results = list(collection.aggregate(pipeline))
+    counts = {r["_id"]: r["count"] for r in results}
+    return {"sentiment_counts": counts}
+
+# Giữ lại tính năng dự đoán đơn lẻ nếu cần
+@app.post("/predict")
+def predict(text: str):
     if not MODEL_PATH.exists():
-        raise FileNotFoundError(
-            f"Model not found: {MODEL_PATH}. Please run train.py first.")
+        return {"error": "Model not found. Run train.py first."}
+    
     pipe = joblib.load(MODEL_PATH)
-
-
-@app.post("/predict", response_model=PredictResponse)
-def predict(req: PredictRequest):
-    # Pipeline(TfidfVectorizer -> LogisticRegression)
-    label = pipe.predict([req.text])[0]
-    score = None
-    # If classifier supports predict_proba, return the probability of predicted label
-    clf = pipe.named_steps.get("clf")
-    if hasattr(clf, "predict_proba"):
-        proba = clf.predict_proba(
-            pipe.named_steps["tfidf"].transform([req.text]))
-        idx = clf.classes_.tolist().index(label)
-        score = float(proba[0][idx])
-    return PredictResponse(label=str(label), score=score)
-
-
-# Run with: uvicorn serve:app --reload --port 8000
+    label = pipe.predict([text])[0]
+    return {"text": text, "prediction": str(label)}
