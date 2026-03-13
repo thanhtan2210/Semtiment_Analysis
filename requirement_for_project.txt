@@ -1,5 +1,0 @@
-Real Time Semtiment Analysis Pipeline • Github link: thanhtan2210/Semtiment_Analysis
--	Architected a real-time sentiment analysis pipeline using Apache Kafka and Spark Streaming to process high-frequency social media data.
--	Implemented Natural Language Processing (NLP) models to classify user emotions, achieving a low-latency response time for live data insights.
--	Designed a scalable storage strategy using NoSQL databases to handle unstructured data and support rapid analytical queries.
--	Tech Stack: Python, Apache Kafka, Spark, Docker, MongoDB.
