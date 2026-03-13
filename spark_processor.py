@@ -60,7 +60,12 @@ def main():
         .select(from_json(col("value"), schema).alias("data")) \
         .select("data.*")
 
-    results_df = json_df.withColumn("sentiment", sentiment_udf(col("text")))
+    # Lọc bỏ dữ liệu rác (Data Cleaning)
+    clean_df = json_df.filter(
+        (col("text").isNotNull()) & (col("text") != "")
+    )
+
+    results_df = clean_df.withColumn("sentiment", sentiment_udf(col("text")))
 
     # 8. Ghi dữ liệu vào MongoDB
     query = results_df.writeStream \
@@ -68,6 +73,7 @@ def main():
             .format("mongo") \
             .mode("append") \
             .save()) \
+        .option("checkpointLocation", "checkpoints/sentiment_analysis") \
         .start()
 
     print(f"Spark Streaming is running and processing '{KAFKA_TOPIC}'...")

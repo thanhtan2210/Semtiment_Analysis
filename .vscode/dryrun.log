@@ -1,8 +1,4 @@
 make.exe --dry-run --always-make --keep-going --print-directory
-make: Entering directory '/cygdrive/d/Bon Bon/SourceCode/AI-project/Semtiment_Analysis'
-echo "Available targets:"
-echo "  make train       - Train model locally"
-echo "  make serve       - Run API locally (uvicorn)"
-echo "  make compose-up  - Start MLflow + API via docker-compose"
-make: Leaving directory '/cygdrive/d/Bon Bon/SourceCode/AI-project/Semtiment_Analysis'
- 
+'make.exe' is not recognized as an internal or external command,
+operable program or batch file.
+
