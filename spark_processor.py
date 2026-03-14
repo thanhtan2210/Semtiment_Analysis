@@ -1,9 +1,14 @@
 import os
 import joblib
 import pandas as pd
+import logging
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import from_json, col, pandas_udf
 from pyspark.sql.types import StructType, StructField, StringType
+
+# Thiết lập logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # 1. Cấu hình
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
@@ -22,6 +27,7 @@ schema = StructType([
 
 def main():
     # 3. Khởi tạo Spark Session với Kafka và MongoDB connector
+    logger.info("Starting Spark Session with Kafka & MongoDB connectors...")
     spark = SparkSession.builder \
         .appName("SentimentAnalysisStreaming") \
         .config("spark.sql.execution.arrow.pyspark.enabled", "true") \
@@ -32,25 +38,22 @@ def main():
     spark.sparkContext.setLogLevel("WARN")
 
     # 4. Tải mô hình NLP (scikit-learn pipeline)
-    # Lưu ý: Cần xử lý broadcast để tối ưu nếu mô hình lớn, nhưng với LR pipeline thì vẫn load bình thường
     if os.path.exists(MODEL_PATH):
-        print(f"Loading pre-trained model from {MODEL_PATH}...")
+        logger.info(f"Loading pre-trained model from {MODEL_PATH}...")
         model = joblib.load(MODEL_PATH)
     else:
-        print("Model not found. Please run train.py first.")
+        logger.error(f"Model not found at {MODEL_PATH}. Please run train.py first.")
         return
 
-    # 5. Tạo Pandas UDF (Vectorized UDFs) để tối ưu hiệu suất (Performance Boost)
+    # 5. Tạo Pandas UDF (Vectorized UDFs) để tối ưu hiệu suất
     @pandas_udf(StringType())
     def predict_sentiment_pandas_udf(text_series: pd.Series) -> pd.Series:
-        # Thay thế NaN hoặc giá trị rỗng bằng chuỗi trống để model không báo lỗi
         clean_series = text_series.fillna("")
-        
-        # Dự đoán theo batch (vectorized)
         predictions = model.predict(clean_series.tolist())
         return pd.Series(predictions)
 
     # 6. Đọc luồng dữ liệu từ Kafka
+    logger.info(f"Subscribing to Kafka topic: {KAFKA_TOPIC}...")
     df = spark \
         .readStream \
         .format("kafka") \
@@ -69,10 +72,10 @@ def main():
         (col("text").isNotNull()) & (col("text") != "")
     )
 
-    # Sử dụng Pandas UDF
     results_df = clean_df.withColumn("sentiment", predict_sentiment_pandas_udf(col("text")))
 
     # 8. Ghi dữ liệu vào MongoDB
+    logger.info("Initializing streaming query to MongoDB...")
     query = results_df.writeStream \
         .foreachBatch(lambda batch_df, batch_id: batch_df.write \
             .format("mongo") \
@@ -81,8 +84,11 @@ def main():
         .option("checkpointLocation", "checkpoints/sentiment_analysis") \
         .start()
 
-    print(f"Spark Streaming is running and processing '{KAFKA_TOPIC}' using Pandas UDF...")
+    logger.info(f"Spark Streaming is active and processing '{KAFKA_TOPIC}'...")
     query.awaitTermination()
+
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
