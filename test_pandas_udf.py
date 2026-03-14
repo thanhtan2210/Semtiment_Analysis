@@ -1,14 +1,24 @@
 import joblib
 import pandas as pd
+import os
+import sys
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, pandas_udf
 from pyspark.sql.types import StringType
 
 def test_pandas_udf():
+    # Cấu hình đường dẫn Python cho Spark (Quan trọng khi dùng venv)
+    python_path = sys.executable
+    os.environ['PYSPARK_PYTHON'] = python_path
+    os.environ['PYSPARK_DRIVER_PYTHON'] = python_path
+
+    print(f"Sử dụng Python tại: {python_path}")
     print("Khởi tạo Spark Session cục bộ...")
     spark = SparkSession.builder \
         .appName("TestPandasUDF") \
+        .master("local[1]") \
         .config("spark.sql.execution.arrow.pyspark.enabled", "true") \
+        .config("spark.driver.bindAddress", "127.0.0.1") \
         .getOrCreate()
     
     spark.sparkContext.setLogLevel("ERROR")

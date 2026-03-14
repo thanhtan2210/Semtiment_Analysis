@@ -81,5 +81,17 @@ services:
     environment:
       - MONGODB_URI=mongodb://mongodb:27017
 
+  # --- Real-time Dashboard (Streamlit) ---
+  dashboard:
+    build: .
+    container_name: sentiment_dashboard
+    command: streamlit run dashboard.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    depends_on:
+      - mongodb
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017
+
 volumes:
   mongo_data:
