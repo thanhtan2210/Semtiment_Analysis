@@ -1,18 +1,30 @@
 PYTHON := python
 
-.PHONY: help train serve compose-up
+.PHONY: help train producer processor api dashboard compose-up
 
 help:
 	@echo "Available targets:"
-	@echo "  make train       - Train model locally"
-	@echo "  make serve       - Run API locally (uvicorn)"
-	@echo "  make compose-up  - Start MLflow + API via docker-compose"
+	@echo "  make train       - Train model"
+	@echo "  make producer    - Run Kafka producer"
+	@echo "  make processor   - Run Spark processor"
+	@echo "  make api         - Run FastAPI"
+	@echo "  make dashboard   - Run Streamlit"
+	@echo "  make compose-up  - Start infra via docker-compose"
 
 train:
-	$(PYTHON) train.py --input sentimentdataset.csv --normalize-labels
+	$(PYTHON) src/ml/train.py
 
-serve:
-	uvicorn serve:app --reload --port 8000
+producer:
+	$(PYTHON) src/ingestion/producer.py
+
+processor:
+	$(PYTHON) src/processing/processor.py
+
+api:
+	uvicorn src.api.main:app --reload --port 8000
+
+dashboard:
+	streamlit run src/dashboard/app.py
 
 compose-up:
 	docker-compose up --build

@@ -3,27 +3,26 @@ import pandas as pd
 from pymongo import MongoClient
 import time
 import os
+import sys
 import plotly.express as px
 
-# 1. MongoDB Configuration
-MONGO_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
-DB_NAME = "sentiment_db"
-COLLECTION_NAME = "results"
+# Setup path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from src.common import config
 
 st.set_page_config(page_title="Real-time Sentiment Monitor", layout="wide")
 
-st.title("📊 Real-time Sentiment Analysis Dashboard")
+st.title("Real-time Sentiment Analysis Dashboard")
 st.markdown("Monitoring user emotions from social media (Kafka + Spark + MongoDB)")
 
-# 2. MongoDB Connection
+# MongoDB Connection
 @st.cache_resource
 def get_db_connection():
-    client = MongoClient(MONGO_URI)
-    return client[DB_NAME][COLLECTION_NAME]
+    client = MongoClient(config.MONGO_URI)
+    return client[config.DB_NAME][config.COLLECTION_NAME]
 
 db_collection = get_db_connection()
 
-# 3. Dashboard Layout
 placeholder_stats = st.empty()
 
 def load_data():
@@ -34,18 +33,14 @@ def load_data():
         return df
     return pd.DataFrame()
 
-# 4. Real-time Update Loop
 while True:
     df = load_data()
-    
     with placeholder_stats.container():
         if not df.empty:
             total_msgs = len(df)
             st.metric("Total Messages (Last 1000 records)", total_msgs)
             
-            # Main charts in two columns
             c1, c2 = st.columns(2)
-            
             with c1:
                 st.subheader("Common Emotions")
                 sentiment_counts = df['sentiment'].value_counts()
@@ -61,6 +56,6 @@ while True:
             st.subheader("Latest Detailed Data")
             st.dataframe(df[['text', 'sentiment', 'country', 'platform']].head(10), use_container_width=True)
         else:
-            st.warning("Waiting for data from Spark Streaming... Please run producer.py and spark_processor.py")
+            st.warning("Waiting for data from Spark Streaming...")
 
-    time.sleep(3) # Refresh every 3 seconds
+    time.sleep(3)

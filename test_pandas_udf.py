@@ -7,13 +7,13 @@ from pyspark.sql.functions import col, pandas_udf
 from pyspark.sql.types import StringType
 
 def test_pandas_udf():
-    # Cấu hình đường dẫn Python cho Spark (Quan trọng khi dùng venv)
+    # Python path configuration for Spark (Crucial for virtual environments)
     python_path = sys.executable
     os.environ['PYSPARK_PYTHON'] = python_path
     os.environ['PYSPARK_DRIVER_PYTHON'] = python_path
 
-    print(f"Sử dụng Python tại: {python_path}")
-    print("Khởi tạo Spark Session cục bộ...")
+    print(f"Using Python at: {python_path}")
+    print("Initializing local Spark Session...")
     spark = SparkSession.builder \
         .appName("TestPandasUDF") \
         .master("local[1]") \
@@ -26,7 +26,7 @@ def test_pandas_udf():
     try:
         model = joblib.load("models/sentiment_pipeline.joblib")
     except Exception as e:
-        print("Lỗi: Không tìm thấy mô hình. Hãy chắc chắn bạn đã chạy train.py trước đó.")
+        print("Error: Model not found. Please ensure you have run train.py.")
         return
 
     @pandas_udf(StringType())
@@ -35,17 +35,17 @@ def test_pandas_udf():
         predictions = model.predict(clean_series.tolist())
         return pd.Series(predictions)
 
-    # Tạo DataFrame giả lập
-    data = [("Hôm nay thời tiết thật tuyệt vời",), ("Sản phẩm này quá tệ",), ("Bình thường thôi",), ("",)]
+    # Create dummy DataFrame
+    data = [("Today the weather is wonderful",), ("This product is terrible",), ("It's just okay",), ("",)]
     df = spark.createDataFrame(data, ["text"])
 
-    print("\nDữ liệu gốc:")
+    print("\nOriginal Data:")
     df.show()
 
-    # Áp dụng Pandas UDF
+    # Apply Pandas UDF
     result_df = df.withColumn("sentiment", predict_sentiment_pandas_udf(col("text")))
 
-    print("\nKết quả sau khi dùng Pandas UDF:")
+    print("\nResult after using Pandas UDF:")
     result_df.show()
 
 if __name__ == "__main__":

@@ -1,22 +1,18 @@
 import os
 import joblib
 import pandas as pd
-import logging
+import sys
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import from_json, col, pandas_udf
 from pyspark.sql.types import StructType, StructField, StringType
 
-# Thiết lập logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Setup path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from src.common import config, logger as common_logger
 
-# 1. Cấu hình
-KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
-KAFKA_TOPIC = "social_media_stream"
-MONGO_URI = "mongodb://localhost:27017/sentiment_db.results"
-MODEL_PATH = "models/sentiment_pipeline.joblib"
+logger = common_logger.get_logger(__name__)
 
-# 2. Định nghĩa Schema cho dữ liệu Kafka
+# Schema definition for Kafka data
 schema = StructType([
     StructField("text", StringType()),
     StructField("user", StringType()),
@@ -26,69 +22,63 @@ schema = StructType([
 ])
 
 def main():
-    # 3. Khởi tạo Spark Session với Kafka và MongoDB connector
+    # Initialize Spark Session
     logger.info("Starting Spark Session with Kafka & MongoDB connectors...")
     spark = SparkSession.builder \
         .appName("SentimentAnalysisStreaming") \
         .config("spark.sql.execution.arrow.pyspark.enabled", "true") \
-        .config("spark.mongodb.output.uri", MONGO_URI) \
+        .config("spark.mongodb.output.uri", config.MONGO_RESULTS_URI) \
         .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.mongodb.spark:mongo-spark-connector_2.12:3.0.1") \
         .getOrCreate()
 
     spark.sparkContext.setLogLevel("WARN")
 
-    # 4. Tải mô hình NLP (scikit-learn pipeline)
-    if os.path.exists(MODEL_PATH):
-        logger.info(f"Loading pre-trained model from {MODEL_PATH}...")
-        model = joblib.load(MODEL_PATH)
+    # Load NLP model
+    if os.path.exists(config.MODEL_PATH):
+        logger.info(f"Loading pre-trained model from {config.MODEL_PATH}...")
+        model = joblib.load(config.MODEL_PATH)
     else:
-        logger.error(f"Model not found at {MODEL_PATH}. Please run train.py first.")
+        logger.error(f"Model not found at {config.MODEL_PATH}. Please run train.py first.")
         return
 
-    # 5. Tạo Pandas UDF (Vectorized UDFs) để tối ưu hiệu suất
+    # Pandas UDF
     @pandas_udf(StringType())
     def predict_sentiment_pandas_udf(text_series: pd.Series) -> pd.Series:
         clean_series = text_series.fillna("")
         predictions = model.predict(clean_series.tolist())
         return pd.Series(predictions)
 
-    # 6. Đọc luồng dữ liệu từ Kafka
-    logger.info(f"Subscribing to Kafka topic: {KAFKA_TOPIC}...")
+    # Read data stream
+    logger.info(f"Subscribing to Kafka topic: {config.TOPIC_NAME}...")
     df = spark \
         .readStream \
         .format("kafka") \
-        .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
-        .option("subscribe", KAFKA_TOPIC) \
+        .option("kafka.bootstrap.servers", config.KAFKA_BOOTSTRAP_SERVERS) \
+        .option("subscribe", config.TOPIC_NAME) \
         .option("startingOffsets", "latest") \
         .load()
 
-    # 7. Giải mã dữ liệu JSON và áp dụng mô hình NLP
     json_df = df.selectExpr("CAST(value AS STRING)") \
         .select(from_json(col("value"), schema).alias("data")) \
         .select("data.*")
 
-    # Lọc bỏ dữ liệu rác (Data Cleaning)
-    clean_df = json_df.filter(
-        (col("text").isNotNull()) & (col("text") != "")
-    )
+    # Data Cleaning
+    clean_df = json_df.filter((col("text").isNotNull()) & (col("text") != ""))
 
     results_df = clean_df.withColumn("sentiment", predict_sentiment_pandas_udf(col("text")))
 
-    # 8. Ghi dữ liệu vào MongoDB
-    logger.info("Initializing streaming query to MongoDB...")
+    # Write to MongoDB
+    logger.info(f"Initializing streaming query to MongoDB: {config.MONGO_RESULTS_URI}")
     query = results_df.writeStream \
         .foreachBatch(lambda batch_df, batch_id: batch_df.write \
             .format("mongo") \
             .mode("append") \
             .save()) \
-        .option("checkpointLocation", "checkpoints/sentiment_analysis") \
+        .option("checkpointLocation", config.CHECKPOINT_PATH) \
         .start()
 
-    logger.info(f"Spark Streaming is active and processing '{KAFKA_TOPIC}'...")
+    logger.info(f"Spark Streaming is active and processing '{config.TOPIC_NAME}'...")
     query.awaitTermination()
-
-if __name__ == "__main__":
-    main()
 
 if __name__ == "__main__":
     main()
